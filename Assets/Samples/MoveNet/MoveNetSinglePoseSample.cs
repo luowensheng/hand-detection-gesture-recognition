@@ -61,7 +61,9 @@ public class MoveNetSinglePoseSample : MonoBehaviour
             {
                 task = InvokeAsync(texture);
                 AfterInvoke(texture);
+
             }
+
         }
         else
         {

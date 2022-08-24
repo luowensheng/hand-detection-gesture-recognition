@@ -2,18 +2,22 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Essentials;
-
+using TensorFlowLite;
 
 public class Monitor : MonoBehaviour
 {
     // Start is called before the first frame update
+
     float fps = 0;
-    int m_frameCounter = 0;
-    float m_timeCounter = 0.0f;
-    float m_lastFramerate = 0.0f;
+    float m_frameCounter = 0;
+    float cam_framCounter = 0;
+
     public float m_refreshTime = 0.5f;
     private Dictionary<string, string> items;
     GUIStyle style;
+
+    public int CalculteFps(float count) => (int)(count / Time.realtimeSinceStartup);
+
 
     public void SetItem(string itemName, string itemValue)
     {
@@ -38,45 +42,56 @@ public class Monitor : MonoBehaviour
 
         items = new Dictionary<string, string>();
 
+        var cam = GetComponent<WebCamInput>();
         var detector = GetComponent<IDetector>();
-        
+
         if (detector != null)
-            detector.OnPredictionEnd += GetFps;
+        {
+            detector.OnPredictionEnd += (_, _) =>
+            {
+                m_frameCounter++;
+            };
+        }
+
+        if (cam != null)
+            //detector.OnPredictionEnd += GetFps;
+            cam.OnTextureUpdate.AddListener((a)=>
+            {
+                cam_framCounter++;
+
+            });
     }
 
     private void OnDestroy()
     {
         var detector = GetComponent<IDetector>();
 
-        if (detector != null)
-            detector.OnPredictionEnd -= GetFps;
+        //if (detector != null)
+        //    detector.OnPredictionEnd -= GetFps;
     }
 
     private void Update()
     {
     }
 
-    void GetFps(object o, DetectionEventArgs a)
+
+    void UpdateFps()
     {
-        if (m_timeCounter < m_refreshTime)
-        {
-            m_timeCounter += Time.deltaTime;
-            m_frameCounter++;
-        }
-        else
-        {
-            m_lastFramerate = (float)m_frameCounter / m_timeCounter;
-            m_frameCounter = 0;
-            m_timeCounter = 0.0f;
-        }
-        print($"Current fps: [{m_lastFramerate.ToString()}]");
+        m_frameCounter++;
+        SetItem("Number of Predictions", m_frameCounter.ToString());
+        SetItem("Time", ((int)Time.realtimeSinceStartup).ToString() + " s");
+        SetItem("Cam Fps", (CalculteFps(cam_framCounter)).ToString());
+        SetItem("Model Fps", (CalculteFps(m_frameCounter)).ToString());
+
     }
 
     void OnGUI()
     {
-        var y = 400;
+        UpdateFps();
 
-        GUI.Label(new Rect(100, y, 1000, 200), $"Current fps: [{(int)m_lastFramerate}]", style);
+        var y = 300;
+
+        // GUI.Label(new Rect(100, y, 1000, 200), $"Current fps: [{CalculteFps()}]", style);
 
         foreach (var item in items)
         {

@@ -6,7 +6,6 @@ using Cysharp.Threading.Tasks;
 using Essentials;
 using System;
 
-//[RequireComponent(typeof(Tracker))]
 [RequireComponent(typeof(Tracker), typeof(IDetector))]
 public class AgeGenderDetector : MonoBehaviour
 {
@@ -19,20 +18,22 @@ public class AgeGenderDetector : MonoBehaviour
     readonly string itemPath = "Text";
     int n_times_called = 0;
 
-    //[SerializeField]
-    Text text;
+    [SerializeField]
+    bool runBackground = true;
+    
 
     delegate Dictionary<int, Vector2> action();
 
     action GetkeypointsOfInterest;
     int noseIndex;
-    private int counter = 1;
-    GameObject LoadItem() => Resources.Load<GameObject>(itemPath);
-    // Watcher("ScreenMessage", (object message)=>{ text.text = val; });
+
+    protected CancellationToken cancellationToken;
+    protected UniTask<bool> task;
 
     void Start()
     {
         var detector = GetComponent<IDetector>();
+        cancellationToken = this.GetCancellationTokenOnDestroy();
 
         faceKeypoints = detector.GetFaceKeypointsIndices();
         noseIndex = detector.GetNoseIndex();
@@ -40,19 +41,9 @@ public class AgeGenderDetector : MonoBehaviour
         var tracker = GetComponent<Tracker>();
         model = new AgeGenderDetection();
 
-        if (canvas == null) return;
-        var item = Instantiate(LoadItem(), canvas.transform);
-
-        item.SetActive(true);
-        text = item.GetComponent<Text>();
-
-        setText($"model loaded {model != null}");
-
-
         GetkeypointsOfInterest = () => tracker.GetkeypointsOfInterest(faceKeypoints);
 
         tracker.onTargetFound += OnTextureUpdate;
-       // Watcher.PutItem("Screen", (object data) => setText(data.ToString()));
     }
 
     protected void OnDestroy()
@@ -61,63 +52,66 @@ public class AgeGenderDetector : MonoBehaviour
         model?.Dispose();
     }
 
-    private void setText(string val)
+
+    protected async UniTask<bool> InvokeAsync(Texture texture)
     {
-        if (text != null)
+        await model.InvokeAsync(texture, cancellationToken);
+        return true;
+    }
+
+    Texture? ExtractFace(Texture texture)
+    {
+        var keypoints = GetkeypointsOfInterest();
+
+        UpdateBoundingBoxFromKeypoints(keypoints, texture.width, texture.height);
+
+        if (BoundingBoxIsNotValid()) return null;
+
+        var cropped = texture.ToTexture2D().Crop(x: faceBbox.xmin,
+                                   y: faceBbox.ymin,
+                                   width: faceBbox.xmax - faceBbox.xmin,
+                                   height: faceBbox.ymax - faceBbox.ymin)
+                                  // .Resized(model.resizedShape)
+                                   ;
+        return cropped;
+
+    }
+    void AfterInvoke()
+    {
+        var res = model.results;
+        GetComponent<Monitor>()?.SetItem("Age Gender", $"{res}");
+    }
+
+    protected void OnTextureUpdate(object source, Tracker.TargetEventArgs ev)
+    {
+        if (n_times_called == 0)
+            GetComponent<Monitor>()?.SetItem("Age Gender", $"Nothing");
+
+        GetComponent<Monitor>()?.SetItem("Age Gender CALLED: ", n_times_called.ToString() + " times");
+        n_times_called++;
+
+        if (runBackground)
         {
-            if (counter % 20 == 0)
+            if (task.Status.IsCompleted())
             {
-                text.text = "";
+                var face = ExtractFace(ev.texture);
+                if (face == null) return;
+
+                task = InvokeAsync(face);
+                AfterInvoke();
             }
-            text.text += $"{counter++}. {val}\n";
-            Debug.Log(val);
+
         }
         else
         {
-            Debug.Log("text is null");
+            var face = ExtractFace(ev.texture);
+            if (face == null) return;
+
+            model.Predict(face);
+            AfterInvoke();
         }
     }
 
-    private void OnTextureUpdate(object source, Tracker.TargetEventArgs ev)
-    {
-        n_times_called++;
-
-        if (n_times_called % 5 != 0) return;
-
-        try
-        {
-            var texture = ev.texture;
-            var keypoints = GetkeypointsOfInterest();
-
-            UpdateBoundingBoxFromKeypoints(keypoints, texture.width, texture.height);
-
-            if (BoundingBoxIsNotValid()) return;
-
-            var cropped = texture.ToTexture2D().Crop(x: faceBbox.xmin,
-                                       y: faceBbox.ymin,
-                                       width: faceBbox.xmax - faceBbox.xmin,
-                                       height: faceBbox.ymax - faceBbox.ymin)
-                                       .Resized(model.resizedShape)
-                                       ;
-           // cropped.SaveTexture("new");
-
-            model.Predict(cropped);
-
-
-            var res = model.results;
-
-            setText($"{res}");
-
-            GetComponent<Monitor>()?.SetItem("Age Gender", $"{res}");
-
-
-        }
-        catch (System.Exception e)
-        {
-            setText(e.StackTrace);
-            throw e;
-        }
-    }
 
     private bool BoundingBoxIsNotValid() => ((faceBbox.xmax - faceBbox.xmin) == 0) || ((faceBbox.ymax - faceBbox.ymin) == 0);
 

@@ -54,6 +54,10 @@ namespace TensorFlowLite
         public BaseImagePredictor(string modelPath, Accelerator accelerator, bool processAccelerator=false)
         {
             var options = new InterpreterOptions();
+
+            //accelerator = Accelerator.GPU;
+            //processAccelerator = true;
+
           //  accelerator = Accelerator.NNAPI;
             if (processAccelerator)
                 switch (accelerator)
